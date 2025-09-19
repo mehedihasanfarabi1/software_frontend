@@ -1,29 +1,24 @@
+// PermissionPage.jsx
 import { useState, useEffect } from "react";
 import Swal from "sweetalert2";
-import { PermissionAPI, UserPermissionAPI } from "../../../api/permissions";
-import UserCompanySelector from "./Components/UserCompanySelector";
 import PermissionAccordion from "./Components/PermissionAccordion";
-import api from "../../../api/axios";
+import UserCompanySelector from "./Components/UserCompanySelector";
+import { PermissionAPI, UserPermissionAPI } from "../../../api/permissions";
 
 export default function PermissionPage() {
   const [permissions, setPermissions] = useState([]);
   const [grouped, setGrouped] = useState({});
-  // const [selectedUser, setSelectedUser] = useState(null);
-  const [selected, setSelected] = useState([]);
-  const [selectedUser, setSelectedUser] = useState(null);
-  const [selectedCompanies, setSelectedCompanies] = useState([]); // multiple
-  const [selectedBusinessTypes, setSelectedBusinessTypes] = useState({}); // { companyId: [btId] }
-  const [selectedFactories, setSelectedFactories] = useState({}); // { companyId: [{btId, id}] }
+  const [selectedModules, setSelectedModules] = useState([]);
 
-  const [selectedCompany, setSelectedCompany] = useState(null);
-  const [businessTypes, setBusinessTypes] = useState([]);
-  const [selectedBusiness, setSelectedBusiness] = useState(null);
-  const [factories, setFactories] = useState([]);
-  const [selectedFactory, setSelectedFactory] = useState(null);
+  const [selectedUser, setSelectedUser] = useState(null);
+
+  const [selectedCompanies, setSelectedCompanies] = useState([]);
+  const [selectedBusinessTypes, setSelectedBusinessTypes] = useState({});
+  const [selectedFactories, setSelectedFactories] = useState({});
 
   const [currentPermissionSet, setCurrentPermissionSet] = useState(null);
 
-  // Load all permissions
+  // Load permissions
   useEffect(() => {
     const loadPermissions = async () => {
       const data = await PermissionAPI.list();
@@ -31,124 +26,149 @@ export default function PermissionPage() {
 
       const groupedData = {};
       data.forEach((p) => {
-        const mainGroup = ["product", "unit", "category"].some((x) =>
-          p.module.includes(x)
-        )
-          ? "products"
-          : "company";
+        const companyModules = ["company", "business_type", "factory"];
+        const productModules = [
+          "product",
+          "product_type",
+          "category",
+          "unit",
+          "unit_size",
+          "unit_conversion",
+          "product_size_setting",
+        ];
+
+        let mainGroup = "other";
+        if (companyModules.includes(p.module)) mainGroup = "company";
+        else if (productModules.includes(p.module)) mainGroup = "products";
 
         if (!groupedData[mainGroup]) groupedData[mainGroup] = {};
         if (!groupedData[mainGroup][p.module]) groupedData[mainGroup][p.module] = [];
         groupedData[mainGroup][p.module].push(p);
       });
+
       setGrouped(groupedData);
     };
     loadPermissions();
   }, []);
 
-  // Load permissions when user/company/business/factory changes
+  // Load user permissions
   useEffect(() => {
-    const loadHybridPermissions = async () => {
+    const loadUserPermissions = async () => {
       if (!selectedUser) {
-        setSelected([]);
+        setSelectedModules([]);
+        setSelectedCompanies([]);
+        setSelectedBusinessTypes({});
+        setSelectedFactories({});
         setCurrentPermissionSet(null);
         return;
       }
-      const sets = await UserPermissionAPI.getByUser(selectedUser);
-      if (sets.length > 0) {
-        // filter by company/business/factory
-        const filteredSet = sets.find(
-          (s) =>
-            (!selectedCompany || s.companies.includes(selectedCompany)) &&
-            (!selectedBusiness ||
-              (s.business_types[selectedCompany] || []).includes(selectedBusiness)) &&
-            (!selectedFactory ||
-              (s.factories[selectedCompany] || []).includes(selectedFactory))
-        );
-        setCurrentPermissionSet(filteredSet || sets[0]);
 
-        const moduleCodes = [];
-        if (filteredSet?.modules) {
-          Object.entries(filteredSet.modules).forEach(([modName, actions]) => {
-            Object.entries(actions).forEach(([action, value]) => {
-              if (value) moduleCodes.push(`${modName}_${action}`);
-            });
-          });
-        }
-        setSelected(moduleCodes);
-      } else {
-        setSelected([]);
+      const sets = await UserPermissionAPI.getByUser(selectedUser.value);
+      if (sets.length === 0) {
+        setSelectedModules([]);
+        setSelectedCompanies([]);
+        setSelectedBusinessTypes({});
+        setSelectedFactories({});
         setCurrentPermissionSet(null);
+        return;
       }
+
+      const setData = sets[0];
+      setCurrentPermissionSet(setData);
+
+      // Module codes
+      const moduleCodes = [];
+      ["product_module", "company_module", "hr_module", "accounts_module", "inventory_module", "settings_module"].forEach(
+        (mod) => {
+          if (setData[mod]) {
+            Object.entries(setData[mod]).forEach(([moduleKey, actions]) => {
+              if (typeof actions === "object") {
+                Object.entries(actions).forEach(([action, val]) => {
+                  if (val) moduleCodes.push(`${moduleKey}_${action}`);
+                });
+              }
+            });
+          }
+        }
+      );
+      setSelectedModules(moduleCodes);
+
+      // Companies
+      const selectedComps = (setData.companies || []).map((id) => ({ value: id, label: "" })); // label will populate in UserCompanySelector
+      setSelectedCompanies(selectedComps);
+
+      // Business Types & Factories
+      setSelectedBusinessTypes(setData.business_types || {});
+      setSelectedFactories(setData.factories || {});
     };
-    loadHybridPermissions();
-  }, [selectedUser, selectedCompany, selectedBusiness, selectedFactory]);
+    loadUserPermissions();
+  }, [selectedUser]);
 
-const save = async () => {
-  if (!selectedUser) {
-    return Swal.fire("⚠️ Error", "Select a user first", "warning");
-  }
-
-  try {
-    // Prepare payload
-    const payload = {
-      user: selectedUser,
-      role: null,
-      companies: selectedCompanies,
-      business_types: selectedBusinessTypes,
-      factories: {},
-      modules: {},
-    };
-
-    // Factories format
-    Object.keys(selectedFactories).forEach((cid) => {
-      payload.factories[cid] = selectedFactories[cid].map((f) => f.id);
-    });
-
-    // Modules format
-    selected.forEach((modAction) => {
-      const [modName, action] = modAction.split("_");
-      if (!modName || !isNaN(modName)) return;
-
-      if (!payload.modules[modName]) {
-        payload.modules[modName] = { create: false, edit: false, delete: false, view: false };
-      }
-
-      if (payload.modules[modName][action] !== undefined) {
-        payload.modules[modName][action] = true;
-      }
-    });
-
-    // 1️⃣ Create/Update UserPermissionSet
-    const setRes = await api.post("/permission-sets/update-or-create/", {
-      user: payload.user,
-      role: payload.role,
-      companies: payload.companies,
-      business_types: payload.business_types,
-      factories: payload.factories,
-    });
-
-    const setId = setRes.data.id; // ✅ setId capture করা
-
-    // 2️⃣ Update/Create each module
-    for (let moduleName of Object.keys(payload.modules)) {
-      console.log("Posting module:", moduleName, payload.modules[moduleName]);
-      await api.post("/module-permissions/update-or-create/", {
-        permission_set: setId,
-        module_name: moduleName,
-        permissions: payload.modules[moduleName],
-      });
+  // Save
+  const save = async () => {
+    if (!selectedUser) {
+      return Swal.fire("⚠️ Error", "Select a user first", "warning");
     }
 
-    // 3️⃣ Reload permissions for the user
-    await UserPermissionAPI.getByUser(selectedUser);
+    try {
+      const payload = {
+        user: selectedUser?.value || selectedUser,  // ✅ safe fallback
+        role: null,
+        companies: selectedCompanies.map((c) => c.value),
+        business_types: selectedBusinessTypes,   // ✅ এখন সঠিক object যাবে
+        factories: selectedFactories,
+        product_module: {},
+        company_module: {},
+        hr_module: {},
+        accounts_module: {},
+        inventory_module: {},
+        settings_module: {},
+      };
 
-    Swal.fire("✅ Saved", "Permissions updated successfully!", "success");
-  } catch (err) {
-    console.error("Save Error:", err);
-    Swal.fire("❌ Error", "Failed to save permissions", "error");
-  }
-};
+      // ✅ Module mapping ঠিক করা হলো
+      selectedModules.forEach((modAction) => {
+        // শেষের "_" এর আগে পর্যন্ত হবে module, পরে হবে action
+        const [module, action] = modAction.split(/_(?=[^_]+$)/);
+
+        const productModules = [
+          "product",
+          "product_type",
+          "category",
+          "unit",
+          "unit_size",
+          "unit_conversion",
+          "product_size_setting",
+        ];
+        const companyModules = ["company", "business_type", "factory"];
+
+        if (productModules.includes(module)) {
+          if (!payload.product_module[module]) {
+            payload.product_module[module] = { create: false, edit: false, delete: false, view: false };
+          }
+          if (action in payload.product_module[module]) {
+            payload.product_module[module][action] = true;
+          }
+        }
+
+        if (companyModules.includes(module)) {
+          if (!payload.company_module[module]) {
+            payload.company_module[module] = { create: false, edit: false, delete: false, view: false };
+          }
+          if (action in payload.company_module[module]) {
+            payload.company_module[module][action] = true;
+          }
+        }
+      });
+
+      console.log("🚀 Final Payload:", payload);
+
+      await UserPermissionAPI.updateOrCreate(selectedUser.value, payload);
+      Swal.fire("✅ Saved", "Permissions updated successfully!", "success");
+    } catch (err) {
+      console.error("Save Error:", err);
+      Swal.fire("❌ Error", "Failed to save permissions", "error");
+    }
+  };
 
 
 
@@ -159,6 +179,7 @@ const save = async () => {
         <p className="mb-0">Assign module-wise permissions to users</p>
       </div>
 
+      {/* User + Company Selector */}
       <UserCompanySelector
         selectedUser={selectedUser}
         setSelectedUser={setSelectedUser}
@@ -170,8 +191,19 @@ const save = async () => {
         setSelectedFactories={setSelectedFactories}
       />
 
-
-      <PermissionAccordion grouped={grouped} selected={selected} setSelected={setSelected} />
+      {/* Permission Accordion */}
+      <PermissionAccordion
+        grouped={grouped}
+        selected={selectedModules}
+        setSelected={setSelectedModules}
+        companies={selectedCompanies}
+        businessTypes={selectedBusinessTypes}
+        selectedBusinessTypes={selectedBusinessTypes}
+        setSelectedBusinessTypes={setSelectedBusinessTypes}
+        factories={selectedFactories}
+        selectedFactories={selectedFactories}
+        setSelectedFactories={setSelectedFactories}
+      />
 
       <div className="text-center mt-4">
         <button className="btn btn-primary px-5 py-2 shadow-lg" onClick={save}>

@@ -19,39 +19,64 @@ export default function UserCompanySelector({
   // Load Users
   useEffect(() => {
     const loadUsers = async () => {
-      const data = await UserAPI.list();
-      setUsers(data || []);
+      try {
+        const data = await UserAPI.list();
+        setUsers(data || []);
+      } catch (err) {
+        console.error("Error loading users:", err);
+      }
     };
     loadUsers();
   }, []);
 
-  // Load Companies + BT + Factories
+  // Load Companies + BusinessTypes + Factories
   useEffect(() => {
     const loadCompanies = async () => {
-      const data = await CompanyAPI.list();
-      setCompanies(data || []);
-      const details = {};
-      for (const c of data || []) {
-        const bts = await BusinessTypeAPI.list(c.id);
-        const fts = await FactoryAPI.list(c.id);
-        details[c.id] = { businessTypes: bts || [], factories: fts || [] };
+      try {
+        const data = await CompanyAPI.list();
+        setCompanies(data || []);
+
+        const details = {};
+        for (const c of data || []) {
+          const bts = await BusinessTypeAPI.list(c.id);
+          const fts = await FactoryAPI.list(c.id);
+          details[c.id] = { businessTypes: bts || [], factories: fts || [] };
+        }
+        setCompanyDetails(details);
+      } catch (err) {
+        console.error("Error loading companies:", err);
       }
-      setCompanyDetails(details);
     };
     loadCompanies();
   }, []);
 
+  // User change (FIXED)
   const handleUserChange = (e) => {
-    setSelectedUser(e.target.value || null);
+    const userId = e.target.value;
+
+    if (!userId) {
+      setSelectedUser(null);
+      return;
+    }
+
+    const userObj = users.find((u) => String(u.id) === String(userId));
+    if (userObj) {
+      setSelectedUser({ value: userObj.id, label: `${userObj.name} (${userObj.email})` });
+    }
+
+    // console.log(userObj)
+
     setSelectedCompanies([]);
     setSelectedBusinessTypes({});
     setSelectedFactories({});
   };
 
+  // Company toggle
   const toggleCompany = (companyId) => {
     const updated = selectedCompanies.includes(companyId)
       ? selectedCompanies.filter((id) => id !== companyId)
       : [...selectedCompanies, companyId];
+
     setSelectedCompanies(updated);
 
     if (!updated.includes(companyId)) {
@@ -64,13 +89,16 @@ export default function UserCompanySelector({
     }
   };
 
+  // BusinessType toggle
   const toggleBusinessType = (companyId, btId) => {
     const currentBTs = Array.isArray(selectedBusinessTypes[companyId])
       ? selectedBusinessTypes[companyId]
       : [];
+
     const updatedBTs = currentBTs.includes(btId)
       ? currentBTs.filter((id) => id !== btId)
       : [...currentBTs, btId];
+
     setSelectedBusinessTypes({ ...selectedBusinessTypes, [companyId]: updatedBTs });
 
     if (!updatedBTs.includes(btId)) {
@@ -80,12 +108,16 @@ export default function UserCompanySelector({
     }
   };
 
+  // Factory toggle
   const toggleFactory = (companyId, btId, fId) => {
-    const currentF = Array.isArray(selectedFactories[companyId]) ? selectedFactories[companyId] : [];
+    const currentF = Array.isArray(selectedFactories[companyId])
+      ? selectedFactories[companyId]
+      : [];
     const exists = currentF.find((f) => f.btId === btId && f.id === fId);
     const updatedF = exists
       ? currentF.filter((f) => !(f.btId === btId && f.id === fId))
       : [...currentF, { btId, id: fId }];
+
     setSelectedFactories({ ...selectedFactories, [companyId]: updatedF });
   };
 
@@ -96,7 +128,7 @@ export default function UserCompanySelector({
         <label className="form-label fw-bold">Select User</label>
         <select
           className="form-select form-select-sm"
-          value={selectedUser || ""}
+          value={selectedUser ? selectedUser.value : ""}
           onChange={handleUserChange}
         >
           <option value="">-- Select User --</option>
@@ -115,6 +147,7 @@ export default function UserCompanySelector({
           {companies.map((c) => {
             const companyBTs = companyDetails[c.id]?.businessTypes || [];
             const companyFactories = companyDetails[c.id]?.factories || [];
+
             const selectedBTs = Array.isArray(selectedBusinessTypes[c.id])
               ? selectedBusinessTypes[c.id]
               : [];
@@ -124,6 +157,7 @@ export default function UserCompanySelector({
 
             return (
               <div key={c.id} className="card p-3 shadow-sm rounded">
+                {/* Company Checkbox */}
                 <div className="form-check">
                   <input
                     type="checkbox"

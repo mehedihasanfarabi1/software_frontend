@@ -36,41 +36,27 @@ export const UserAPI = {
 // User Permission APIs (Hybrid Model)
 // ====================
 export const UserPermissionAPI = {
-  // ১টা user এর সব PermissionSets / ModulePermissions নিয়ে আসে
+  // ✅ একটা user এর সব PermissionSets নিয়ে আসবে
   getByUser: async (userId) => {
-    const setsRes = await api.get(`/permission-sets/user/${userId}/`);
-    const sets = setsRes.data;
-
-    // প্রতিটি PermissionSet এর module permissions
-    for (let s of sets) {
-      const modulesRes = await api.get(`/module-permissions/set/${s.id}/`);
-      s.modules = modulesRes.data; // modules attach
-    }
-    return sets;
+    const res = await api.get(`/permission-sets/user/${userId}/`);
+    return res.data;
   },
 
-  // Update / Create permission set + module permissions একসাথে
+  // ✅ Update / Create একসাথে
   updateOrCreate: async (userId, payload) => {
-  // PermissionSet create/update
-  const setRes = await api.post("/permission-sets/update-or-create/", {
-    user: userId,
-    role: payload.role,
-    companies: payload.companies,
-    business_types: payload.business_types,
-    factories: payload.factories,
-  });
-
-  const setId = setRes.data.id;
-
-  // ✅ প্রতিটি module আলাদা করে save করা
-  for (let moduleName of Object.keys(payload.modules)) {
-    await api.post("/module-permissions/update-or-create/", {
-      permission_set: setId,
-      module_name: moduleName,              // আর numeric key যাবে না
-      permissions: payload.modules[moduleName], // শুধু {create, edit, delete, view}
+    const res = await api.post("/permission-sets/update-or-create/", {
+      user: userId,
+      role: payload.role,
+      companies: payload.companies,
+      business_types: payload.business_types,
+      factories: payload.factories,
+      product_module: payload.product_module,
+      company_module: payload.company_module,
+      hr_module: payload.hr_module,
+      accounts_module: payload.accounts_module,
+      inventory_module: payload.inventory_module,
+      settings_module: payload.settings_module,
     });
-  }
-
-    return await UserPermissionAPI.getByUser(userId);
+    return res.data;
   }
 };
